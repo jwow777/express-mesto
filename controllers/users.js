@@ -1,47 +1,48 @@
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const User = require('../models/user');
 
-module.exports.getUsers = (req, res) => {
+const NotFoundError = require('../errors/not-found-err');
+const BadRequestError = require('../errors/bad-request-error');
+const Unauthorized = require('../errors/unauthorized-error');
+const Conflict = require('../errors/conflict-error');
+
+module.exports.getUsers = (req, res, next) => {
   User.find({}, { __v: 0 })
     .then((users) => res.status(200).send(users))
-    .catch((err) => {
-      if (err.name === 'ValidationError') {
-        res.status(400).send({ message: 'Невалидный id' });
-      } else {
-        res.status(500).send({ message: 'На сервере произошла ошибка' });
-      }
-    });
+    .catch(next);
 };
 
-module.exports.getUserById = (req, res) => {
+module.exports.getUserById = (req, res, next) => {
   User.findById(req.params.userId, { __v: 0 })
     .orFail(new Error('NotFound'))
     .then((user) => res.status(200).send(user))
     .catch((err) => {
-      if (err.message === 'NotFound') {
-        res.status(404).send({ message: 'Пользователь с указанным id не найден' });
-      } else if (err.name === 'CastError') {
-        res.status(400).send({ message: 'Невалидный id' });
-      } else {
-        res.status(500).send({ message: 'На сервере произошла ошибка' });
-      }
-    });
+      throw new NotFoundError(err.message);
+    })
+    .catch(next);
 };
 
-module.exports.createUser = (req, res) => {
-  const { name, about, avatar } = req.body;
+module.exports.createUser = (req, res, next) => {
+  const {
+    name, about, avatar, email,
+  } = req.body;
 
-  User.create({ name, about, avatar })
+  bcrypt.hash(req.body.password, 10)
+    .then((hash) => User.create({
+      name, about, avatar, email, password: hash,
+    }))
     .then((user) => res.status(200).send(user))
     .catch((err) => {
-      if (err.name === 'ValidationError') {
-        res.status(400).send({ message: 'Невалидный id' });
-      } else {
-        res.status(500).send({ message: 'На сервере произошла ошибка' });
+      if (err.name === 'MongoError' || err.code === 11000) {
+        throw new Conflict(err.message);
       }
-    });
+      throw new BadRequestError(err.message);
+    })
+    .catch(next);
 };
 
-module.exports.updateUser = (req, res) => {
+module.exports.updateUser = (req, res, next) => {
   const { name, about } = req.body;
 
   User.findByIdAndUpdate(
@@ -52,29 +53,46 @@ module.exports.updateUser = (req, res) => {
     .orFail(new Error('NotFound'))
     .then((user) => res.status(200).send(user))
     .catch((err) => {
-      if (err.message === 'NotFound') {
-        res.status(404).send({ message: 'Пользователь с указанным id не найден' });
-      } else if (err.name === 'CastError') {
-        res.status(400).send({ message: 'Невалидный id' });
+      if (err.message === 'NotFound' || err.name === 'CastError') {
+        throw new NotFoundError(err.message);
       } else {
-        res.status(500).send({ message: 'На сервере произошла ошибка' });
+        throw new BadRequestError(err.message);
       }
-    });
+    })
+    .catch(next);
 };
 
-module.exports.updateUserAvatar = (req, res) => {
+module.exports.updateUserAvatar = (req, res, next) => {
   const { avatar } = req.body;
 
   User.findByIdAndUpdate(req.user._id, { avatar }, { new: true, runValidators: true })
     .orFail(new Error('NotFound'))
     .then((user) => res.status(200).send(user))
     .catch((err) => {
-      if (err.message === 'NotFound') {
-        res.status(404).send({ message: 'Пользователь с указанным id не найден' });
-      } else if (err.name === 'CastError') {
-        res.status(400).send({ message: 'Невалидный id' });
+      if (err.message === 'NotFound' || err.name === 'CastError') {
+        throw new NotFoundError(err.message);
       } else {
-        res.status(500).send({ message: 'На сервере произошла ошибка' });
+        throw new BadRequestError(err.message);
       }
-    });
+    })
+    .catch(next);
+};
+
+module.exports.login = (req, res, next) => {
+  const { email, password } = req.body;
+
+  return User.findUserByCredentials(email, password)
+    .then((user) => {
+      const token = jwt.sign({ _id: user._id }, 'some-secret-key', { expiresIn: '7d' });
+      res.send({ token });
+      res.cookie('jwt', token, {
+        maxAge: 3600000 * 24 * 7,
+        httpOnly: true,
+        sameSite: true,
+      }).end();
+    })
+    .catch((err) => {
+      throw new Unauthorized(err.message);
+    })
+    .catch(next);
 };
