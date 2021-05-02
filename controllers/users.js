@@ -8,14 +8,16 @@ const Unauthorized = require('../errors/unauthorized-error');
 const Conflict = require('../errors/conflict-error');
 
 module.exports.getUsers = (req, res, next) => {
-  User.find({}, { __v: 0 })
+  User.find({})
+    .select('-__v')
     .then((users) => res.status(200).send(users))
     .catch(next);
 };
 
 module.exports.getUserById = (req, res, next) => {
-  User.findById(req.params.userId, { __v: 0 })
-    .orFail(new Error('NotFound'))
+  User.findById(req.params.id)
+    .select('-__v')
+    .orFail(new Error('Запрашиваемый пользователь не найден'))
     .then((user) => res.status(200).send(user))
     .catch((err) => {
       throw new NotFoundError(err.message);
@@ -32,7 +34,9 @@ module.exports.createUser = (req, res, next) => {
     .then((hash) => User.create({
       name, about, avatar, email, password: hash,
     }))
-    .then((user) => res.status(200).send(user))
+    .then(() => {
+      res.status(200).send({ email, password: undefined });
+    })
     .catch((err) => {
       if (err.name === 'MongoError' || err.code === 11000) {
         throw new Conflict(err.message);
@@ -50,10 +54,11 @@ module.exports.updateUser = (req, res, next) => {
     { name, about },
     { new: true, runValidators: true },
   )
-    .orFail(new Error('NotFound'))
+    .select('-__v')
+    .orFail(new Error('Запрашиваемый пользователь не найден'))
     .then((user) => res.status(200).send(user))
     .catch((err) => {
-      if (err.message === 'NotFound' || err.name === 'CastError') {
+      if (err.message === 'Запрашиваемый пользователь не найден' || err.name === 'Невалидный id') {
         throw new NotFoundError(err.message);
       } else {
         throw new BadRequestError(err.message);
@@ -66,10 +71,11 @@ module.exports.updateUserAvatar = (req, res, next) => {
   const { avatar } = req.body;
 
   User.findByIdAndUpdate(req.user._id, { avatar }, { new: true, runValidators: true })
-    .orFail(new Error('NotFound'))
+    .select('-__v')
+    .orFail(new Error('Запрашиваемый пользователь не найден'))
     .then((user) => res.status(200).send(user))
     .catch((err) => {
-      if (err.message === 'NotFound' || err.name === 'CastError') {
+      if (err.message === 'Запрашиваемый пользователь не найден' || err.name === 'Невалидный id') {
         throw new NotFoundError(err.message);
       } else {
         throw new BadRequestError(err.message);
@@ -84,7 +90,7 @@ module.exports.login = (req, res, next) => {
   return User.findUserByCredentials(email, password)
     .then((user) => {
       const token = jwt.sign({ _id: user._id }, 'some-secret-key', { expiresIn: '7d' });
-      res.send({ token });
+      res.status(200).send({ token });
       res.cookie('jwt', token, {
         maxAge: 3600000 * 24 * 7,
         httpOnly: true,
@@ -93,6 +99,17 @@ module.exports.login = (req, res, next) => {
     })
     .catch((err) => {
       throw new Unauthorized(err.message);
+    })
+    .catch(next);
+};
+
+module.exports.getCurrentUser = (req, res, next) => {
+  User.findById(req.user._id)
+    .select('-__v')
+    .orFail(new Error('Запрашиваемый пользователь не найден'))
+    .then((user) => res.status(200).send(user))
+    .catch((err) => {
+      throw new NotFoundError(err.message);
     })
     .catch(next);
 };

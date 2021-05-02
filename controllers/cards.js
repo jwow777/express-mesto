@@ -4,7 +4,8 @@ const BadRequestError = require('../errors/bad-request-error');
 const Forbidden = require('../errors/forbidden-error');
 
 module.exports.getCards = (req, res, next) => {
-  Card.find({}, { __v: 0 })
+  Card.find({})
+    .select('-__v')
     .then((cards) => res.status(200).send(cards))
     .catch(next);
 };
@@ -21,8 +22,9 @@ module.exports.createCard = (req, res, next) => {
 };
 
 module.exports.deleteCard = (req, res, next) => {
-  Card.findById(req.params.cardId)
-    .orFail(new Error('NotFound'))
+  Card.findById(req.params.id)
+    .select('-__v')
+    .orFail(new Error('Запрашиваемая карточка не найдена'))
     .then((data) => {
       if (data.owner.toString() !== req.user._id) {
         throw new Forbidden('Вы не можете удалить чужую карточку.');
@@ -38,8 +40,8 @@ module.exports.deleteCard = (req, res, next) => {
 };
 
 module.exports.putCardLike = (req, res, next) => {
-  Card.findByIdAndUpdate(req.params.cardId, { $addToSet: { likes: req.user._id } }, { new: true })
-    .orFail(new Error('NotFound'))
+  Card.findByIdAndUpdate(req.params.id, { $addToSet: { likes: req.user._id } }, { new: true })
+    .orFail(new Error('Запрашиваемая карточка не найдена'))
     .then((card) => res.status(200).send(card))
     .catch((err) => {
       throw new NotFoundError(err.message);
@@ -48,8 +50,8 @@ module.exports.putCardLike = (req, res, next) => {
 };
 
 module.exports.deleteCardLike = (req, res, next) => {
-  Card.findByIdAndUpdate(req.params.cardId, { $pull: { likes: req.user._id } }, { new: true })
-    .orFail(new Error('NotFound'))
+  Card.findByIdAndUpdate(req.params.id, { $pull: { likes: req.user._id } }, { new: true })
+    .orFail(new Error('Запрашиваемая карточка не найдена'))
     .then((card) => res.status(200).send(card))
     .catch((err) => {
       throw new NotFoundError(err.message);
