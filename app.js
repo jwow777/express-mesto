@@ -6,6 +6,7 @@ const { errors } = require('celebrate');
 const usersRouter = require('./routes/users');
 const cardsRouter = require('./routes/cards');
 const notFound = require('./routes/notFound');
+const { requestLogger, errorLogger } = require('./middlewares/logger');
 
 const { PORT = 3000 } = process.env;
 
@@ -29,6 +30,8 @@ mongoose.connect('mongodb://localhost:27017/mestodb', {
   useUnifiedTopology: true,
 });
 
+app.use(requestLogger);
+
 app.post('/signup', registrValid, createUser);
 app.post('/signin', loginValid, login);
 
@@ -36,6 +39,8 @@ app.use(auth);
 app.use('/users', usersRouter);
 app.use('/cards', cardsRouter);
 app.use('*', notFound);
+
+app.use(errorLogger);
 
 app.use(errors());
 
